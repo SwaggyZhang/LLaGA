@@ -223,7 +223,7 @@ def eval_products_nd(res_path):
 
 
 def eval_pubmed_nc(res_path):
-    data=torch.load("dataset/pubmed/processed_data.pt")
+    data=torch.load("dataset/pubmed/processed_data.pt", weights_only=False)
     labels=data.label_texts
     short_labels = [l[18:] for l in labels]
     ys=data.y.numpy().tolist()
