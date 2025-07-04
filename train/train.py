@@ -96,7 +96,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Quantization data type to use. Should be one of `fp4` or `nf4`."}
     )
     bits: int = field(
-        default=16,
+        default=8,
         metadata={"help": "How many bits to use."}
     )
     lora_enable: bool = False
@@ -612,7 +612,7 @@ class LazySupervisedGraphDataset(Dataset):
             else:
                 print(f"{dataset} not exists!!!!")
                 raise ValueError
-            data = torch.load(data_path)
+            data = torch.load(data_path, weights_only=False)
             self.datas[dataset]=data
             data_dir=os.path.dirname(data_path)
             if data_args.template == "ND":
@@ -966,7 +966,7 @@ def _train():
     #     model.model.requires_grad_(False)
 
     if training_args.bits in [4, 8]:
-        from peft import prepare_model_for_kbit_training
+        from peft.utils.other import prepare_model_for_kbit_training
         model.config.torch_dtype=(torch.float32 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
 

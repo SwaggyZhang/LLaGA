@@ -1,7 +1,9 @@
 import math
 
-from ogb.nodeproppred import PygNodePropPredDataset
+# from ogb.nodeproppred import PygNodePropPredDataset
+import torch_geometric as pyg
 import torch_geometric.transforms as T
+from torch_geometric.utils import subgraph, negative_sampling
 import numpy as np
 import pandas as pd
 import torch
@@ -11,7 +13,7 @@ from sentence_transformers import SentenceTransformer
 import os
 from tqdm import trange
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import openai
+# import openai
 from multiprocessing import Process
 import scipy.sparse as sp
 # from multiprocessing import  pool
@@ -46,6 +48,176 @@ def get_fix_shape_subgraph_sequence_fast(edge_list, node_idx, k_hop, sample_size
         neighbors.append(current_hop)
     node_sequence = [n for hop in neighbors for n in hop]
     return node_sequence
+
+def split_node(data, train_ratio=0.6, val_ratio=0.2):
+
+    seed = 435
+    pyg.seed_everything(seed)
+    transform_n = T.RandomNodeSplit(num_val=val_ratio, num_test=(1-train_ratio-val_ratio))
+    node_splits = transform_n(data)
+
+    train_idx = node_splits['train_id'].tolist()
+    val_idx = node_splits['val_id'].tolist()
+    test_idx = node_splits['test_id'].tolist()
+
+    return train_idx, val_idx, test_idx
+
+
+
+def generate_nc_jsonl(data_name='pubmed', k_hop=2, sample_size=10):
+
+    data = torch.load(os.path.join('dataset',data_name,'processed_data.pt'), weights_only=False)
+    edge_list = generate_edge_list(data)  # obtain the list of 1-hop sub-graphs
+    
+    if data_name == 'pubmed':
+        train_ratio, val_ratio = 0.6, 0.2
+        qs = f" Given a node-centered graph:{DEFAULT_GRAPH_TOKEN}, each node represents a paper about Diabetes, we need to classify the center node into 3 classes: Diabetes Mellitus Experimental, Diabetes Mellitus Type1, Diabetes Mellitus Type2, please tell me which class the center node belongs to?"
+    elif data_name == 'cora':
+        train_ratio, val_ratio = 0.6, 0.2
+        qs = f" Given a node-centered graph:{DEFAULT_GRAPH_TOKEN}, each node represents a paper, we need to classify the center node into 7 classes: Case_Based, Genetic_Algorithms, Neural_Networks, Probabilistic_Methods, Reinforcement_Learning, Rule_Learning, Theory, please tell me which class the center node belongs to? Direct tell me the class name."
+    elif data_name == 'products':
+        train_ratio, val_ratio = 0.08, 0.02
+        qs = f"Given a node-centered graph: {DEFAULT_GRAPH_TOKEN}, where nodes represent products sold in Amazon, and edges between products indicate they are purchased together. We need to classify the center node into 47 classes: Home & Kitchen, Health & Personal Care, Beauty, Sports & Outdoors, Books, Patio, Lawn & Garden, Toys & Games, CDs & Vinyl, Cell Phones & Accessories, Grocery & Gourmet Food, Arts, Crafts & Sewing, Clothing, Shoes & Jewelry, Electronics, Movies & TV, Software, Video Games, Automotive, Pet Supplies, Office Products, Industrial & Scientific, Musical Instruments, Tools & Home Improvement, Magazine Subscriptions, Baby Products, label 25, Appliances, Kitchen & Dining, Collectibles & Fine Art, All Beauty, Luxury Beauty, Amazon Fashion, Computers, All Electronics, Purchase Circles, MP3 Players & Accessories, Gift Cards, Office & School Supplies, Home Improvement, Camera & Photo, GPS & Navigation, Digital Music, Car Electronics, Baby, Kindle Store, Buy a Kindle, Furniture & D&#233;cor, #508510, please tell me which class the center node belongs to?"
+    elif data_name == 'arxiv':
+        train_ratio, val_ratio = 6/11, 2/11
+        qs = f"Given a node-centered graph: {DEFAULT_GRAPH_TOKEN}, where nodes represent papers, we need to classify the center node into 40 classes: cs.NA(Numerical Analysis), cs.MM(Multimedia), cs.LO(Logic in Computer Science), cs.CY(Computers and Society), cs.CR(Cryptography and Security), cs.DC(Distributed, Parallel, and Cluster Computing), cs.HC(Human-Computer Interaction), cs.CE(Computational Engineering, Finance, and Science), cs.NI(Networking and Internet Architecture), cs.CC(Computational Complexity), cs.AI(Artificial Intelligence), cs.MA(Multiagent Systems), cs.GL(General Literature), cs.NE(Neural and Evolutionary Computing), cs.SC(Symbolic Computation), cs.AR(Hardware Architecture), cs.CV(Computer Vision and Pattern Recognition), cs.GR(Graphics), cs.ET(Emerging Technologies), cs.SY(Systems and Control), cs.CG(Computational Geometry), cs.OH(Other Computer Science), cs.PL(Programming Languages), cs.SE(Software Engineering), cs.LG(Machine Learning), cs.SD(Sound), cs.SI(Social and Information Networks), cs.RO(Robotics), cs.IT(Information Theory), cs.PF(Performance), cs.CL(Computational Complexity), cs.IR(Information Retrieval), cs.MS(Mathematical Software), cs.FL(Formal Languages and Automata Theory), cs.DS(Data Structures and Algorithms), cs.OS(Operating Systems), cs.GT(Computer Science and Game Theory), cs.DB(Databases), cs.DL(Digital Libraries), cs.DM(Discrete Mathematics), please tell me which class the center node belongs to? Direct tell me the class name."
+    
+    human_conv = {"from": "human", "value": None}
+    gpt_conv = {"from": "gpt", "value": None}
+
+    train_idx, val_idx, test_idx = split_node(data, train_ratio, val_ratio)
+
+
+    jsonl_train_file = f"sampled_{k_hop}_{sample_size}_train_zx.jsonl"
+    jsonl_val_file = f"sampled_{k_hop}_{sample_size}_val_zx.jsonl"
+    jsonl_test_file = f"sampled_{k_hop}_{sample_size}_test_zx.jsonl"
+    # jsonl for node classification task
+    with open(os.path.join("./dataset",data_name, jsonl_train_file), 'w') as f:
+        print('Prepare the node classification train jsonl file... \n')
+        for node_idx in tqdm(train_idx):
+            sample_dic = {}
+            node_sequence = get_fix_shape_subgraph_sequence_fast(edge_list, node_idx, k_hop, sample_size)
+            sample_dic['id'] = node_idx
+            sample_dic['graph'] = node_sequence
+            human_conv['value'] = qs
+            gpt_conv['value'] = data.label_texts[data.y[node_idx]]
+            sample_dic['conversations'] = [human_conv, gpt_conv]
+            json_line = json.dumps(sample_dic)
+            f.write(json_line + '\n')
+    
+    with open(os.path.join("./dataset",data_name, jsonl_val_file), 'w') as f:
+        print('Prepare the node classification val jsonl file... \n')
+        for node_idx in tqdm(val_idx):
+            sample_dic = {}
+            node_sequence = get_fix_shape_subgraph_sequence_fast(edge_list, node_idx, k_hop, sample_size)
+            sample_dic['id'] = node_idx
+            sample_dic['graph'] = node_sequence
+            gpt_conv['value'] = data.label_texts[data.y[node_idx]]
+            sample_dic['conversations'] = [human_conv, gpt_conv]
+            json_line = json.dumps(sample_dic)
+            f.write(json_line + '\n')
+    
+    with open(os.path.join("./dataset",data_name, jsonl_test_file), 'w') as f:
+        print('Prepare the node classification test jsonl file... \n')
+        for node_idx in tqdm(test_idx):
+            sample_dic = {}
+            node_sequence = get_fix_shape_subgraph_sequence_fast(edge_list, node_idx, k_hop, sample_size)
+            sample_dic['id'] = node_idx
+            sample_dic['graph'] = node_sequence
+            gpt_conv['value'] = data.label_texts[data.y[node_idx]]
+            sample_dic['conversations'] = [human_conv, gpt_conv]
+            # print(sample_dic)
+            json_line = json.dumps(sample_dic)
+            f.write(json_line + '\n')
+    
+        
+def generate_lp_jsonl(data_name='pubmed', k_hop=2, sample_size=10):
+
+    data = torch.load(os.path.join('dataset',data_name,'processed_data.pt'), weights_only=False)
+    edge_list = generate_edge_list(data)
+
+    if data_name == 'pubmed':
+        train_ratio, val_ratio = 0.6, 0.2
+    elif data_name == 'cora':
+        train_ratio, val_ratio = 0.6, 0.2
+    elif data_name == 'products':
+        train_ratio, val_ratio = 0.08, 0.02
+    elif data_name == 'arxiv':
+        train_ratio, val_ratio = 6/11, 2/11
+
+    human_conv = {"from": "human", "value": None}
+    gpt_conv = {"from": "gpt", "value": None}
+
+
+    train_idx, _, test_idx = split_node(data, train_ratio, val_ratio)
+
+    # TODO: negative sampling
+    train_data, _ = subgraph(subset=train_idx, edge_index=data.edge_index)
+    test_data, _ = subgraph(subset=test_idx, edge_index=data.edge_index)
+    train_data = train_data[:, :int(len(train_idx)/2)]
+    test_data = test_data[:, :int(len(test_idx)/2)]
+    print(len(train_idx))
+    train_pos = torch.ones(train_data.shape[1], dtype=torch.long)
+    test_pos = torch.ones(test_data.shape[1], dtype=torch.long)
+
+    negative_train = negative_sampling(train_data)
+    negative_test = negative_sampling(test_data)
+    train_neg = torch.zeros_like(train_pos)
+    test_neg = torch.zeros_like(test_pos)
+    total_train_edges = torch.concat([train_data, negative_train], dim=1)
+    total_test_edges = torch.concat([test_data, negative_test], dim=1)
+
+    total_train_label = torch.concat([train_pos, train_neg], dim=0)
+    total_test_label = torch.concat([test_pos, test_neg], dim=0)
+    train_rd_idx = torch.randperm(total_train_edges.shape[1])
+    test_rd_idx = torch.randperm(total_test_edges.shape[1])
+
+    #shuffle the above total edge set and labels
+    edgeset_train = total_train_edges[:, train_rd_idx].view(total_train_edges.size()).tolist()
+    edgeset_test = total_train_edges[:, test_rd_idx].view(total_test_edges.size()).tolist()
+    total_train_label = total_train_label[train_rd_idx]
+    total_test_label = total_test_label[test_rd_idx]
+    print(total_train_label.shape)
+    # jsonl for link prediction task
+    jsonl_train_file = f"edge_sampled_{k_hop}_{sample_size}_only_train_zx.jsonl"
+    jsonl_test_file = f"edge_sampled_{k_hop}_{sample_size}_only_test_zx.jsonl"
+
+    
+    edge_label = ['pos', 'neg']
+    gpt_ans = ['yes', 'no']
+    with open(os.path.join("./dataset",data_name, jsonl_train_file), 'w') as f:
+        print('Prepare the link prediction train jsonl file... \n')
+        for i in trange(len(train_rd_idx)):
+            sample_dic = {}
+            src = edgeset_train[0][i]
+            tgt = edgeset_train[1][i]
+            sample_dic['id'] = [src, tgt]
+            src_seq = get_fix_shape_subgraph_sequence_fast(edge_list, src, k_hop, sample_size, avoid_idx=tgt)
+            tgt_seq = get_fix_shape_subgraph_sequence_fast(edge_list, tgt, k_hop, sample_size, avoid_idx=src)
+            sample_dic['graph'] = [src_seq, tgt_seq]
+            label = total_train_label[i]
+            human_conv['value'] = data_name + '_' + edge_label[label] + '_edge'
+            gpt_conv['value'] = gpt_ans[label]
+            sample_dic['conversations'] = [human_conv, gpt_conv]
+            json_line = json.dumps(sample_dic)
+            f.write(json_line + '\n')
+    
+    with open(os.path.join("./dataset",data_name, jsonl_test_file), 'w') as f:
+        print('Prepare the link prediction test jsonl file... \n')
+        for i in trange(len(test_rd_idx)):
+            sample_dic = {}
+            src = edgeset_test[0][i]
+            tgt = edgeset_test[1][i]
+            sample_dic['id'] = [src, tgt]
+            src_seq = get_fix_shape_subgraph_sequence_fast(edge_list, src, k_hop, sample_size, avoid_idx=tgt)
+            tgt_seq = get_fix_shape_subgraph_sequence_fast(edge_list, tgt, k_hop, sample_size, avoid_idx=src)
+            sample_dic['graph'] = [src_seq, tgt_seq]
+            label = total_train_label[i]
+            human_conv['value'] = data_name + '_' + edge_label[label] + '_edge'
+            gpt_conv['value'] = gpt_ans[label]
+            sample_dic['conversations'] = [human_conv, gpt_conv]
+            json_line = json.dumps(sample_dic)
+            f.write(json_line + '\n')
 
 """
 get edge_list from pyg edge_index\
@@ -145,7 +317,7 @@ def generate_multi_hop_x_arxiv_notestlink(emb="sbert"):
         mask[link['id'][0]] = True
         mask[link['id'][1]] = True
     mp = MP()
-    torch.save(mask, f"dataset/{dataset}/no_test_link_mask.pt")
+    torch.save(mask, f"dataset/ogbn-arxiv/no_test_link_mask.pt")
     for i in range(4):
         x = mp.propagate(edge_index, x=x, norm=norm)
         torch.save(x[mask].cpu(), f"dataset/ogbn-arxiv/{emb}_{i + 1}hop_x_notestlink.pt")
@@ -171,7 +343,7 @@ def generate_multi_hop_x_products_notestlink(emb="sbert"):
         mask[link['id'][0]] = True
         mask[link['id'][1]] = True
     mp = MP()
-    torch.save(mask, f"dataset/{dataset}/no_test_link_mask.pt")
+    torch.save(mask, f"dataset/ogbn-products/no_test_link_mask.pt")
     for i in range(4):
         x = mp.partition_propagate(data.edge_index, x=x, norm=norm, chunk_size=200, cuda=True)
         torch.save(x[mask].cpu(), f"dataset/ogbn-products/{emb}_{i + 1}hop_x_notestlink.pt")

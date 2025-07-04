@@ -50,6 +50,18 @@ class LlagaLlamaForCausalLM(LlamaForCausalLM, LlagaMetaForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
+    
+    def _init_weights(self, module):
+        std = self.config.initializer_range
+        if isinstance(module, nn.Linear):
+            module.weight.data = module.weight.data.to(torch.bfloat16) # editted by Xin
+            module.weight.data.normal_(mean=0.0, std=std) # the INT8 model cannot execute this line
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
 
     def get_model(self):
         return self.model

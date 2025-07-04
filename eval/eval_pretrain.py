@@ -77,7 +77,7 @@ def eval_model(args):
     print(f"Loaded from {model_path}. Model Base: {args.model_base}")
     tokenizer, model, context_len = load_pretrained_model(model_path, args.model_base, model_name,
                                                           cache_dir=args.cache_dir)
-    model = model.to(torch.float16).cuda()
+    # model = model.to(torch.float16).cuda()
     # data_dir=os.path.expanduser(args.data_dir)
     if args.dataset == "arxiv":
         data_dir = "dataset/ogbn-arxiv"
@@ -105,7 +105,7 @@ def eval_model(args):
     else:
         raise ValueError
 
-    data = torch.load(data_path)
+    data = torch.load(data_path, weights_only=False)
     print(f"Load from {prompt_file}\n")
     lines = open(prompt_file, "r").readlines()
 
@@ -116,7 +116,8 @@ def eval_model(args):
     elif args.end > 0:
         lines = lines[:args.end]
 
-    answers_file = os.path.expanduser(args.answers_file)
+    answers_file = args.answers_file # os.path.expanduser(args.answers_file)
+    print('answres_file:',answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
     if "tmp" not in args.answers_file and os.path.exists(answers_file):
         line_number = len(open(answers_file, 'r').readlines())

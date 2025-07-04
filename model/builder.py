@@ -25,7 +25,7 @@ from huggingface_hub import hf_hub_download
 
 
 
-def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", cache_dir="../../checkpoint"):
+def load_pretrained_model(model_path, model_base, model_name, load_8bit=True, load_4bit=False, device_map="auto", device="cuda", cache_dir="../../checkpoint"):
     kwargs = {"device_map": device_map}
 
     if load_8bit:
@@ -102,18 +102,20 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
                 tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
                 cfg_pretrained = AutoConfig.from_pretrained(model_path)
                 model = LlagaLlamaForCausalLM.from_pretrained(model_base, low_cpu_mem_usage=True, config=cfg_pretrained, cache_dir=cache_dir,
-                                                              **kwargs)
-            # model.get_model().initialize_graph_modules(cfg_pretrained)
+                                                              quantization_config= BitsAndBytesConfig(**cfg_pretrained.quantization_config))
             if os.path.exists(os.path.join(model_path, 'mm_projector.bin')):
-                mm_projector_weights = torch.load(os.path.join(model_path, 'mm_projector.bin'), map_location='cpu')
-                print("Load from local path")
+                # mm_projector_weights = torch.load(os.path.join(model_path, 'mm_projector.bin'), map_location='cpu')
+                cfg_pretrained.pretrain_mm_mlp_adapter = os.path.join(model_path, 'mm_projector.bin')
+                model.get_model().initialize_graph_modules(cfg_pretrained)
+                model.get_model().mm_projector.to(dtype=torch.float16)
+                print("Load projector from local path")
             else:
                 from huggingface_hub import hf_hub_download
                 model_path_hf = hf_hub_download(repo_id=model_path,  filename='mm_projector.bin')
                 mm_projector_weights = torch.load(model_path_hf, map_location='cpu')
-                print("Load from huggingface")
-            mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}
-            model.load_state_dict(mm_projector_weights, strict=False)
+                print("Load projector from huggingface")
+                mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}
+                model.load_state_dict(mm_projector_weights, strict=True)
         else:
             # if 'mpt' in model_name.lower():
             #     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
