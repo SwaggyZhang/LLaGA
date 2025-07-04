@@ -38,7 +38,7 @@ pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -
 
 ```
 ## Step 2:  Data Preparation
-Download our datasets from [Box](https://utexas.box.com/s/i7y03rzm40xt9bjbaj0dfdgxeyjx77gb) (updated link prediction data on 4/11/2024). And move the processed data to `./dataset`
+Download our datasets from [Box](https://utexas.boxcn.net/s/i7y03rzm40xt9bjbaj0dfdgxeyjx77gb) (updated link prediction data on 4/11/2024). And move the processed data to `./dataset`
 ```
 .
 ├── README.md
