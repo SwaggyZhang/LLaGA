@@ -8,7 +8,7 @@ sys.path.append(".")
 sys.path.append("./utils")
 from llama_flash_attn_monkey_patch import replace_llama_attn_with_flash_attn
 
-replace_llama_attn_with_flash_attn()
+replace_llama_attn_with_flash_attn()  # noted by Xin: 仅适用于bf16或者fp16
 
 from train import _train
 
