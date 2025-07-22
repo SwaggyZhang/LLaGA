@@ -20,7 +20,7 @@ def tokenizer_graph_token(prompt, tokenizer, graph_token_index=GRAPH_TOKEN_INDEX
     offset = 0
     if len(prompt_chunks) > 0 and len(prompt_chunks[0]) > 0 and prompt_chunks[0][0] == tokenizer.bos_token_id:
         offset = 1
-        input_ids.append(prompt_chunks[0][0])
+        input_ids.append(prompt_chunks[0][0]) # noted by Xin: append the bos_token
 
     for x in insert_separator(prompt_chunks, [graph_token_index] * (offset + 1)):
         input_ids.extend(x[offset:])

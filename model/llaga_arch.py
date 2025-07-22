@@ -23,16 +23,20 @@ import re
 # from .multimodal_projector.builder import build_vision_projector
 
 from utils.constants import IGNORE_INDEX, GRAPH_TOKEN_INDEX, DEFAULT_GRAPH_START_TOKEN, DEFAULT_GRAPH_END_TOKEN, DEFAULT_GRAPH_PAD_ID
+from .self_attn_projector import SelfAttnConfig, Block
 
-
-def build_graph_projector(config, delay_load=False, **kwargs):
+def build_graph_projector(config, delay_load=False, adj_mx=None, **kwargs):
     projector_type = getattr(config, 'mm_projector_type', 'linear')
 
     hidden_dim = getattr(config, 'word_embed_proj_dim', getattr(config, 'hidden_size', 'linear'))
 
     if projector_type == 'linear':
         return nn.Linear(config.mm_hidden_size, hidden_dim)
+    elif projector_type == 'self_attention': # TODO: self attention config, n_ctx
+        projector_config =  SelfAttnConfig(llm_config=config)
+        return Block(config=projector_config)
     mlp_gelu_match = re.match(r'^(\d+)-layer-mlp$', projector_type)
+    
     if mlp_gelu_match:
         mlp_depth = int(mlp_gelu_match.group(1))
         modules = [nn.Linear(config.mm_hidden_size, hidden_dim)]
@@ -40,6 +44,7 @@ def build_graph_projector(config, delay_load=False, **kwargs):
             modules.append(nn.GELU())
             modules.append(nn.Linear(hidden_dim, hidden_dim))
         return nn.Sequential(*modules)
+    
     else:
         raise ValueError(f'Unknown projector type: {projector_type}')
 
@@ -91,8 +96,11 @@ class LlagaMetaForCausalLM(ABC):
     def get_model(self):
         pass
 
-    def encode_graphs(self, graph, graph_emb):
-        graph_features = self.get_model().mm_projector(graph_emb)
+    def encode_graphs(self, graph, graph_emb, adj_mx=None):
+        if isinstance(self.get_model().mm_projector, nn.Linear):
+            graph_features = self.get_model().mm_projector(graph_emb)
+        else:  # self attention block
+            graph_features = self.get_model().mm_projector(graph_emb, adj_mx)
         graph_features[graph==DEFAULT_GRAPH_PAD_ID] = 0.
         return graph_features
 
@@ -113,14 +121,14 @@ class LlagaMetaForCausalLM(ABC):
         return new_graph_emb
 
     def prepare_inputs_labels_for_multimodal(
-        self, input_ids, attention_mask, past_key_values, labels, graphs, graph_emb
+        self, input_ids, attention_mask, past_key_values, labels, graphs, graph_emb, adj_mx=None
     ):
         if past_key_values is not None and graphs is not None and input_ids.shape[1] == 1:
             attention_mask = torch.ones((attention_mask.shape[0], past_key_values[-1][-1].shape[-2] + 1),
                                         dtype=attention_mask.dtype, device=attention_mask.device)
             return input_ids, attention_mask, past_key_values, None, labels
 
-        graph_features = self.encode_graphs(graphs, graph_emb)
+        graph_features = self.encode_graphs(graphs, graph_emb, adj_mx)
 
         new_input_embeds = []
         new_labels = [] if labels is not None else None

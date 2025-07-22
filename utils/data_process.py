@@ -151,7 +151,6 @@ def generate_lp_jsonl(data_name='pubmed', k_hop=2, sample_size=10):
 
     train_idx, _, test_idx = split_node(data, train_ratio, val_ratio)
 
-    # TODO: negative sampling
     train_data, _ = subgraph(subset=train_idx, edge_index=data.edge_index)
     test_data, _ = subgraph(subset=test_idx, edge_index=data.edge_index)
     train_data = train_data[:, :int(len(train_idx)/2)]
@@ -391,4 +390,5 @@ def build_laplacian_emb(k_hop, sample_size):
     # rand_sign = 2 * (np.random.rand(emb_dim) > 0.5) - 1.
     # PE = torch.FloatTensor(rand_sign * topk_EigVec)
     torch.save(PE, f"dataset/laplacian_{k_hop}_{sample_size}.pt")
+    sp.save_npz(f"dataset/adj_{k_hop}_{sample_size}.npz", A)
     return PE

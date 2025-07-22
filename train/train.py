@@ -914,6 +914,13 @@ def _train():
         model_args.mm_hidden_size = 1024*2+384
     else:
         raise ValueError
+    
+    if model_args.mm_projector_type=='linear':
+        adj_mx = None
+    elif model_args.mm_projector_type=='self_attention':
+        adj_mx = sp.load_npz(
+                    f"dataset/adj_{data_args.use_hop}_{data_args.sample_neighbor_size}.npz")
+        adj_mx = torch.tensor(adj_mx.toarray(), dtype=torch.float16)
     if data_args.template == "ND":
         data_args.structure_embedding_dim = int((data_args.sample_neighbor_size ** (data_args.use_hop + 1) - 1) / (data_args.sample_neighbor_size - 1))
         model_args.mm_hidden_size += data_args.structure_embedding_dim
@@ -957,6 +964,7 @@ def _train():
         model = LlagaLlamaForCausalLM.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
+            adj_mx = adj_mx
             **bnb_model_from_pretrained_args
         )
 
