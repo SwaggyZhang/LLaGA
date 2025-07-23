@@ -378,14 +378,14 @@ class LlagaMetaForCausalLM(ABC):
             self.resize_token_embeddings(len(tokenizer))
 
             if num_new_tokens > 0:
-                input_embeddings = self.get_input_embeddings().weight.data
+                input_embeddings = self.get_input_embeddings().weight.data  # noted by Xin: get_input_embeddings()方法来自于LlamaForCausalLM
                 output_embeddings = self.get_output_embeddings().weight.data
 
                 input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(
                     dim=0, keepdim=True)
                 output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
                     dim=0, keepdim=True)
-
+                # noted by Xin: 给新增加的special token赋平均值
                 input_embeddings[-num_new_tokens:] = input_embeddings_avg
                 output_embeddings[-num_new_tokens:] = output_embeddings_avg
 

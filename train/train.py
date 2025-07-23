@@ -1044,7 +1044,7 @@ def _train():
             conversation_lib.default_conversation = conversation_lib.conv_templates["vicuna_v1"]
 
     # if model_args.vision_tower is not None:
-    model.get_model().initialize_graph_modules(
+    model.get_model().initialize_graph_modules(  # noted by Xin: model.llaga_arch.LlagaMetaModel
         model_args=model_args,
         fsdp=training_args.fsdp
     )
@@ -1067,7 +1067,7 @@ def _train():
 
     model.config.mm_use_graph_start_end = data_args.mm_use_graph_start_end = model_args.mm_use_graph_start_end
     training_args.mm_use_graph_start_end = model_args.mm_use_graph_start_end
-    model.initialize_graph_tokenizer(model_args, tokenizer=tokenizer)
+    model.initialize_graph_tokenizer(model_args, tokenizer=tokenizer)  # noted by Xin: 编辑上述tokenizer 即加入表示graph的special tokens
 
     if training_args.bits in [4, 8]:
         from peft.tuners.lora import LoraLayer
